@@ -1,571 +1,365 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Reproductor Nagi+ — Mejorado</title>
-
-  <!-- Lucide icons -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Reproductor Nagi+</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
-
   <style>
-    :root{
-      --prog-color: #ff3b3b;
-      --buffer-color: #9b9b9b;
-      --rest-color: #333333;
-      --thumb-size: 16px;
-      --track-height: 8px;
+    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    * { user-select: none; }
+    .hidden-controls { opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
+    .show-controls { opacity: 1; pointer-events: auto; }
+
+    /* Barra progreso avanzada */
+    input[type=range] {
+      appearance: none;
+      height: 6px;
+      width: 100%;
+      border-radius: 3px;
+      background: linear-gradient(to right, red 0%, red 0%, #444 0%, #444 100%);
+      outline: none;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      background: white;
+      border: 2px solid red;
+      border-radius: 50%;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      background: white;
+      border: 2px solid red;
+      border-radius: 50%;
+      cursor: pointer;
     }
 
-    html,body{height:100%;margin:0;background:#000;color:#fff;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-    *{box-sizing:border-box;user-select:none}
-
-    /* Wrapper */
-    #videoWrapper{position:fixed;inset:0;display:flex;align-items:stretch;justify-content:stretch;background:#000;overflow:hidden}
-
-    /* Video */
-    video{
-      width:100%;height:100%;object-fit:cover;background:#000;
-      display:block;
+    .text-outline {
+      text-shadow: 1px 1px 2px black, -1px -1px 2px black;
     }
-
-    /* Cover (poster) */
-    #cover{
-      position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;flex-direction:column;
-      background:linear-gradient(180deg, rgba(0,0,0,0.5), rgba(0,0,0,0.6));
-    }
-    #posterImage{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(0.5px);opacity:1}
-    #coverPlayBtn{
-      z-index:80;border:0;background:rgba(255,59,59,0.95);color:#fff;padding:14px 18px;border-radius:999px;font-size:18px;cursor:pointer;
-      display:flex;align-items:center;gap:10px;backdrop-filter: blur(6px);
-    }
-
-    /* Spinner overlay */
-    #loadingSpinner{
-      position:absolute;inset:0;z-index:75;display:flex;align-items:center;justify-content:center;
-      background:rgba(0,0,0,0.45);gap:12px;pointer-events:none;opacity:0;transition:opacity .18s ease;
-    }
-    #loadingSpinner.visible{opacity:1;pointer-events:auto}
-    .spinner {
-      width:44px;height:44px;border-radius:50%;border:5px solid rgba(255,255,255,0.12);border-top-color:var(--prog-color);
-      animation:spin 1s linear infinite;
-    }
-    @keyframes spin{to{transform:rotate(360deg)}}
-
-    /* Unlock button (shown when locked) */
-    #unlockBtn{position:absolute;top:12px;right:12px;z-index:85;background:rgba(0,0,0,0.45);border-radius:999px;padding:8px;display:none;color:#fff}
-
-    /* Episode title */
-    #episodeTitle{position:absolute;top:12px;left:12px;z-index:85;font-size:14px;text-shadow:0 1px 6px rgba(0,0,0,0.9)}
-
-    /* Controls container */
-    #controls{
-      position:absolute;left:0;right:0;bottom:0;z-index:80;padding:14px 18px;background:linear-gradient(0deg, rgba(0,0,0,0.75), rgba(0,0,0,0.0));
-      display:flex;flex-direction:column;gap:10px;transition:opacity .2s ease,transform .2s ease;opacity:1;
-    }
-    .hidden-controls{opacity:0;pointer-events:none;transform:translateY(6px)}
-    .show-controls{opacity:1;pointer-events:auto;transform:translateY(0)}
-
-    /* Progress wrapper */
-    .progress-wrap{width:100%;position:relative}
-    input[type=range].progress{
-      -webkit-appearance:none;appearance:none;width:100%;height:var(--track-height);border-radius:999px;background:transparent;cursor:pointer;
-    }
-
-    /* Track (we use transparent track + background on input element) */
-    input[type=range].progress::-webkit-slider-runnable-track{height:var(--track-height);border-radius:999px;background:transparent}
-    input[type=range].progress::-moz-range-track{height:var(--track-height);border-radius:999px;background:transparent}
-
-    /* Thumb */
-    input[type=range].progress::-webkit-slider-thumb{
-      -webkit-appearance:none;margin-top:calc((var(--track-height) - var(--thumb-size)) / 2);width:var(--thumb-size);height:var(--thumb-size);
-      border-radius:50%;background:#ffffff;border:3px solid var(--prog-color);box-shadow:0 6px 18px rgba(0,0,0,0.55);
-      transition:transform .12s ease,box-shadow .12s ease;
-    }
-    input[type=range].progress:hover::-webkit-slider-thumb{transform:scale(1.08)}
-    input[type=range].progress:active::-webkit-slider-thumb{transform:scale(1.15)}
-
-    input[type=range].progress::-moz-range-thumb{
-      width:var(--thumb-size);height:var(--thumb-size);border-radius:50%;background:#fff;border:3px solid var(--prog-color);
-      box-shadow:0 6px 18px rgba(0,0,0,0.55);
-    }
-
-    /* Bottom controls row */
-    .controls-row{display:flex;align-items:center;gap:14px;justify-content:space-between}
-    .controls-left{display:flex;align-items:center;gap:12px}
-    .icon-btn{background:rgba(255,255,255,0.04);border:0;padding:8px;border-radius:10px;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center}
-    .small-txt{font-size:12px;color:#fff;opacity:.95;text-shadow:0 1px 4px rgba(0,0,0,0.9)}
-
-    /* Skip intro button */
-    #btnSkipIntro{position:absolute;right:16px;bottom:86px;z-index:85;padding:8px 12px;border-radius:8px;border:0;background:rgba(255,59,59,0.95);color:#fff;font-weight:600;display:none}
-
-    /* lock overlay */
-    .overlay-block{position:absolute;inset:0;z-index:70}
-
-    /* responsive */
-    @media (max-width:640px){
-      #coverPlayBtn{padding:10px 14px;font-size:16px}
-      .icon-btn{padding:6px}
-      .small-txt{font-size:11px}
-    }
+    .icon-shadow svg { filter: drop-shadow(1px 1px 2px black); }
+    .animate-press:active { transform: scale(0.9); transition: transform 0.1s ease; }
+    .active-red { color: red !important; }
   </style>
 </head>
-<body>
-  <div id="videoWrapper">
-    <!-- Poster / Cover -->
-    <div id="cover" role="button" aria-label="Reproducir">
-      <img id="posterImage" src="" alt="poster" />
-      <button id="coverPlayBtn" aria-label="Reproducir en pantalla completa">
-        <i data-lucide="play" style="width:18px;height:18px"></i>
-        Reproducir
-      </button>
-    </div>
-
-    <!-- Spinner -->
-    <div id="loadingSpinner" aria-hidden="true">
-      <div class="spinner" role="status" aria-hidden="true"></div>
-      <div class="small-txt">Cargando...</div>
-    </div>
-
-    <!-- Unlock (aparece si bloqueo activo) -->
-    <button id="unlockBtn" title="Desbloquear controles" aria-hidden="true">
-      <i data-lucide="unlock" style="width:16px;height:16px"></i>
-    </button>
-
-    <!-- Episode title -->
-    <div id="episodeTitle" aria-hidden="true"></div>
-
-    <!-- Video element -->
-    <video id="video" playsinline preload="auto" crossorigin="anonymous"></video>
-
-    <!-- Skip intro -->
-    <button id="btnSkipIntro" aria-hidden="true">Saltar intro</button>
-
-    <!-- Controls -->
-    <div id="controls" class="hidden-controls" aria-hidden="false">
-      <div class="progress-wrap">
-        <input id="progress" class="progress" type="range" min="0" step="0.1" value="0" aria-label="Barra de progreso" />
-      </div>
-
-      <div class="controls-row">
-        <div class="controls-left">
-          <button id="rewBtn" class="icon-btn" title="Retroceder 10s"><i data-lucide="rewind" style="width:16px;height:16px"></i></button>
-          <button id="playPauseBtn" class="icon-btn" title="Reproducir / Pausar"><i id="playPauseIcon" data-lucide="play" style="width:20px;height:20px"></i></button>
-          <button id="fwdBtn" class="icon-btn" title="Avanzar 10s"><i data-lucide="fast-forward" style="width:16px;height:16px"></i></button>
-
-          <div class="small-txt" id="timeText" style="margin-left:8px">
-            <span id="currentTime">0:00</span> / <span id="totalTime">0:00</span>
-          </div>
-        </div>
-
-        <div style="display:flex;align-items:center;gap:10px">
-          <button id="fitBtn" class="icon-btn" title="Ajuste de video"><i data-lucide="move" style="width:16px;height:16px"></i></button>
-          <button id="fullscreenToggle" class="icon-btn" title="Pantalla completa"><i data-lucide="maximize" style="width:16px;height:16px"></i></button>
-          <button id="lockBtn" class="icon-btn" title="Bloquear controles"><i id="lockIcon" data-lucide="lock" style="width:16px;height:16px"></i></button>
-        </div>
-      </div>
-    </div>
-
-  </div>
+<body class="bg-black w-screen h-screen overflow-hidden">
 
 <script>
-/* ---------------------------
-   Parámetros desde URL
-   --------------------------- */
-const urlParams = new URLSearchParams(window.location.search);
-const videoLink = urlParams.get('linkmp4') || '';
-const titulo = urlParams.get('titulo') || '';
-const sigEpisodio = urlParams.get('sig') || '#';
-const capitulosURL = urlParams.get('capitulos') || '#';
-const posterURL = urlParams.get('poster') || '';
-const introEnd = Number(urlParams.get('intro')) || 0;
-const storageKey = `nagi-progress-${encodeURIComponent(videoLink || 'default')}`;
+  const urlParams = new URLSearchParams(window.location.search);
+  const videoLink = urlParams.get('linkmp4');
+  const titulo = urlParams.get('titulo') || '';
+  const sigEpisodio = urlParams.get('sig') || '#';
+  const capitulosURL = urlParams.get('capitulos') || '#';
+  const posterURL = urlParams.get('poster') || '';
+  const introEnd = parseInt(urlParams.get('intro')) || 0;
+  const storageKey = `nagi-progress-${videoLink}`;
+</script>
 
-/* ---------------------------
-   Elementos DOM
-   --------------------------- */
-const video = document.getElementById('video');
-const cover = document.getElementById('cover');
-const posterImage = document.getElementById('posterImage');
-const coverPlayBtn = document.getElementById('coverPlayBtn');
-const loadingSpinner = document.getElementById('loadingSpinner');
-const unlockBtn = document.getElementById('unlockBtn');
-const episodeTitle = document.getElementById('episodeTitle');
-const btnSkipIntro = document.getElementById('btnSkipIntro');
+<div id="videoWrapper" class="w-screen h-screen fixed top-0 left-0 z-0">
+  <!-- Portada -->
+  <div id="cover" class="absolute inset-0 z-50 bg-black">
+    <img id="posterImage" src="" class="w-full h-full object-cover" />
+    <button onclick="startVideo()" class="absolute inset-0 flex items-center justify-center">
+      <div class="bg-white/20 backdrop-blur-sm p-4 rounded-full text-white animate-press">
+        <i data-lucide="play" class="w-12 h-12"></i>
+      </div>
+    </button>
+  </div>
 
-const progress = document.getElementById('progress');
-const currentTimeEl = document.getElementById('currentTime');
-const totalTimeEl = document.getElementById('totalTime');
+  <!-- Spinner -->
+  <div id="loadingSpinner" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/60">
+    <div class="animate-spin text-white mb-4">
+      <i data-lucide="loader" class="w-10 h-10"></i>
+    </div>
+    <div class="text-white text-sm font-semibold text-outline">Cargando Nagi+...</div>
+  </div>
 
-const playPauseBtn = document.getElementById('playPauseBtn');
-const playPauseIcon = document.getElementById('playPauseIcon');
-const rewBtn = document.getElementById('rewBtn');
-const fwdBtn = document.getElementById('fwdBtn');
-const fitBtn = document.getElementById('fitBtn');
-const fullscreenToggle = document.getElementById('fullscreenToggle');
-const lockBtn = document.getElementById('lockBtn');
-const lockIcon = document.getElementById('lockIcon');
-const controlsContainer = document.getElementById('controls');
+  <!-- Video -->
+  <video id="video" class="w-full h-full object-cover" src="" playsinline></video>
 
-/* ---------------------------
-   Estado
-   --------------------------- */
-let controlsVisible = false;
-let locked = false;
-let hideTimeout = null;
-let saveInterval = null;
-let isCoverMode = true;
-let enteredFullscreenByUser = false; // para no volver a pedir fullscreen si ya lo intentamos por user-gesture
+  <!-- Saltar intro -->
+  <button id="btnSkipIntro" onclick="resetHideTimeout(); skipIntro()" class="absolute right-4 bottom-36 bg-white/20 text-white px-3 py-1 text-sm font-bold z-50 backdrop-blur-sm hidden text-outline">
+    <i data-lucide="fast-forward" class="inline-block w-4 h-4 mr-1"></i> Saltar intro
+  </button>
 
-/* ---------------------------
-   Utilidades
-   --------------------------- */
-function safeNumber(v){ return Number.isFinite(v) ? Number(v) : 0; }
+  <!-- Desbloquear -->
+  <button id="unlockBtn" onclick="resetHideTimeout(); unlockControls()" class="absolute top-2 right-2 z-50 text-white p-2 bg-black/50 rounded-full hidden">
+    <i data-lucide="unlock" class="w-6 h-6"></i>
+  </button>
 
-function formatTime(t){
-  t = safeNumber(t);
-  if (t <= 0) return '0:00';
-  const h = Math.floor(t / 3600);
-  const m = Math.floor((t % 3600) / 60);
-  const s = Math.floor(t % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-  return `${m}:${String(s).padStart(2,'0')}`;
-}
+  <!-- Título -->
+  <div id="episodeTitle" class="absolute top-2 left-2 z-10 text-white text-sm text-outline hidden-controls"></div>
 
-function createIconsNow(){ try{ lucide.createIcons(); }catch(e){} }
+  <!-- Controles -->
+  <div id="controls" class="absolute inset-0 flex flex-col justify-end px-4 pt-2 pb-4 hidden-controls">
+    <div class="flex-1 flex items-center justify-center">
+      <div class="flex items-center justify-center gap-72">
+        <button onclick="resetHideTimeout(); skip(-10)" class="active:text-red-600 icon-shadow animate-press">
+          <i data-lucide="rotate-ccw" class="w-8 h-8 text-white"></i>
+        </button>
+        <button id="playPauseBtn" onclick="resetHideTimeout(); togglePlay()" class="animate-press active:text-red-600 icon-shadow">
+          <i id="playPauseIcon" data-lucide="pause" class="w-10 h-10 text-white"></i>
+        </button>
+        <button onclick="resetHideTimeout(); skip(10)" class="active:text-red-600 icon-shadow animate-press">
+          <i data-lucide="rotate-cw" class="w-8 h-8 text-white"></i>
+        </button>
+      </div>
+    </div>
 
-/* ---------------------------
-   Fullscreen + orientation (advanced)
-   --------------------------- */
-function enterFullscreenAdvanced(){
-  // Only attempt if we haven't already requested from a user gesture
-  // Browser requires fullscreen request to be triggered by user interaction.
-  if (enteredFullscreenByUser) return;
-  const el = document.documentElement;
-  try {
-    if (el.requestFullscreen) {
-      el.requestFullscreen();
-    } else if (el.webkitRequestFullscreen) {
-      el.webkitRequestFullscreen();
-    } else if (el.mozRequestFullScreen) {
-      el.mozRequestFullScreen();
-    } else if (el.msRequestFullscreen) {
-      el.msRequestFullscreen();
-    }
-  } catch (e) {
-    // ignore errors
-  }
-  // intentar bloquear orientación a landscape si el navegador lo permite
-  try {
-    if (screen.orientation && typeof screen.orientation.lock === 'function') {
-      screen.orientation.lock('landscape').catch(()=>{});
-    } else if (screen.lockOrientationUniversal) {
-      // no estándar - fallback ninguno garantizado
-      try{ screen.lockOrientationUniversal('landscape'); }catch(e){}
-    }
-  } catch(e){}
-  enteredFullscreenByUser = true;
-}
+    <!-- Barra progreso -->
+    <div>
+      <input type="range" id="progress" min="0" value="0" step="1" class="w-full" />
+      <div class="flex justify-between text-xs text-white mt-1 text-outline">
+        <span id="currentTime">0:00:00</span>
+        <span id="totalTime">0:00:00</span>
+      </div>
+    </div>
 
-/* ---------------------------
-   Progress / Buffer visual
-   --------------------------- */
-function getBufferEnd(){
-  try {
-    if (!video.buffered || video.buffered.length === 0) return 0;
-    let maxEnd = 0;
-    for (let i = 0; i < video.buffered.length; i++){
-      const end = video.buffered.end(i);
-      if (end > maxEnd) maxEnd = end;
-    }
-    return maxEnd;
-  } catch (e) {
-    return 0;
-  }
-}
+    <!-- Controles inferiores -->
+    <div id="bottomControls" class="grid grid-cols-5 text-white text-xs mt-2 gap-2 text-center">
+      <button onclick="resetHideTimeout(); toggleFullscreen()" class="flex flex-col items-center active:text-red-600 icon-shadow animate-press">
+        <i data-lucide="maximize" class="w-5 h-5 mb-1"></i><span class="text-outline">Pantalla completa</span>
+      </button>
+      <button onclick="resetHideTimeout(); toggleVideoFit(this)" class="flex flex-col items-center icon-shadow animate-press" id="fitBtn">
+        <i data-lucide="move" class="w-5 h-5 mb-1"></i><span class="text-outline">Ajuste</span>
+      </button>
+      <button onclick="location.href=capitulosURL" class="flex flex-col items-center active:text-red-600 icon-shadow animate-press">
+        <i data-lucide="layout-grid" class="w-5 h-5 mb-1"></i><span class="text-outline">Episodios</span>
+      </button>
+      <button id="lockBtn" onclick="toggleLock()" class="flex flex-col items-center active:text-red-600 icon-shadow animate-press">
+        <i id="lockIcon" data-lucide="lock" class="w-5 h-5 mb-1"></i><span id="lockText" class="text-outline">Bloquear</span>
+      </button>
+      <button onclick="location.href=sigEpisodio" class="flex flex-col items-center active:text-red-600 icon-shadow animate-press">
+        <i data-lucide="chevron-right" class="w-5 h-5 mb-1"></i><span class="text-outline">Sig. Episodio</span>
+      </button>
+    </div>
+  </div>
+</div>
 
-function updateProgressBarVisual(){
-  const duration = safeNumber(video.duration);
-  const current = safeNumber(video.currentTime);
-  const valuePercent = duration ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
+<script>
+  const video = document.getElementById('video');
+  const playPauseIcon = document.getElementById('playPauseIcon');
+  const progress = document.getElementById('progress');
+  const currentTimeEl = document.getElementById('currentTime');
+  const totalTimeEl = document.getElementById('totalTime');
+  const controls = document.getElementById('controls');
+  const unlockBtn = document.getElementById('unlockBtn');
+  const episodeTitle = document.getElementById('episodeTitle');
+  const btnSkipIntro = document.getElementById('btnSkipIntro');
+  const lockBtn = document.getElementById('lockBtn');
+  const lockIcon = document.getElementById('lockIcon');
+  const lockText = document.getElementById('lockText');
+  const videoWrapper = document.getElementById('videoWrapper');
+  const cover = document.getElementById('cover');
+  const loadingSpinner = document.getElementById('loadingSpinner');
+  const fitBtn = document.getElementById('fitBtn');
 
-  const bufferEnd = safeNumber(getBufferEnd());
-  const bufferPercent = duration ? Math.max(valuePercent, Math.min(100, (bufferEnd / duration) * 100)) : valuePercent;
+  let controlsVisible = true;
+  let locked = false;
+  let hideTimeout;
+  let isCoverMode = true;
+  let saveInterval;
 
-  const progColor = getComputedStyle(document.documentElement).getPropertyValue('--prog-color') || '#ff3b3b';
-  const bufferColor = getComputedStyle(document.documentElement).getPropertyValue('--buffer-color') || '#9b9b9b';
-  const restColor = getComputedStyle(document.documentElement).getPropertyValue('--rest-color') || '#333333';
-
-  progress.style.background = `linear-gradient(to right,
-    ${progColor.trim()} 0%, ${progColor.trim()} ${valuePercent}%,
-    ${bufferColor.trim()} ${valuePercent}%, ${bufferColor.trim()} ${bufferPercent}%,
-    ${restColor.trim()} ${bufferPercent}%, ${restColor.trim()} 100%)`;
-}
-
-/* ---------------------------
-   Play / Pause / Skip / UI
-   --------------------------- */
-function setPlayIcon(isPlaying){
-  const iconName = isPlaying ? 'pause' : 'play';
-  // reemplazar el icono manteniendo el elemento
-  try {
-    const old = playPauseIcon;
-    const parent = old.parentNode;
-    const newI = document.createElement('i');
-    newI.setAttribute('data-lucide', iconName);
-    newI.style.width = '20px';
-    newI.style.height = '20px';
-    newI.id = 'playPauseIcon';
-    parent.replaceChild(newI, old);
-    createIconsNow();
-  } catch(e){}
-}
-
-function togglePlay({requestFullscreen=false} = {}){
-  if (video.paused || video.ended) {
-    const p = video.play();
-    // requestFullscreen must be in user gesture; caller should set requestFullscreen true when triggered by a click
-    if (requestFullscreen) enterFullscreenAdvanced();
-    // play() returns a promise, ignore errors
-    if (p && typeof p.catch === 'function') p.catch(()=>{});
-  } else {
-    video.pause();
-  }
-  setPlayIcon(!(video.paused || video.ended));
-  showControls();
-}
-
-function skip(seconds){
-  try {
-    const dur = safeNumber(video.duration);
-    let target = safeNumber(video.currentTime) + Number(seconds);
-    if (target < 0) target = 0;
-    if (dur && target > dur) target = dur;
-    video.currentTime = target;
-    updateProgressBarVisual();
-  } catch(e){}
-}
-
-/* ---------------------------
-   Controls show/hide / lock
-   --------------------------- */
-function showControls(){
-  if (locked) return;
-  controlsContainer.classList.remove('hidden-controls');
-  controlsContainer.classList.add('show-controls');
-  controlsVisible = true;
-  resetHideTimeout();
-}
-
-function hideControls(){
-  if (locked) return;
-  controlsContainer.classList.add('hidden-controls');
-  controlsContainer.classList.remove('show-controls');
-  controlsVisible = false;
-}
-
-function resetHideTimeout(){
-  clearTimeout(hideTimeout);
-  hideTimeout = setTimeout(()=> {
-    if (!video.paused) hideControls();
-  }, 3000);
-}
-
-function lockControls(){
-  locked = true;
-  hideControls();
-  unlockBtn.style.display = 'block';
-  lockBtn.style.display = 'none';
-  lockIcon.setAttribute('data-lucide','lock');
-  createIconsNow();
-}
-
-function unlockControls(){
-  locked = false;
-  unlockBtn.style.display = 'none';
-  lockBtn.style.display = 'inline-flex';
-  lockIcon.setAttribute('data-lucide','unlock');
-  createIconsNow();
-}
-
-/* ---------------------------
-   Save / Load progress
-   --------------------------- */
-function startSaveProgress(){
-  if (saveInterval) clearInterval(saveInterval);
-  saveInterval = setInterval(()=> {
-    try { localStorage.setItem(storageKey, String(video.currentTime || 0)); } catch(e){}
-  }, 1000);
-}
-function stopSaveProgress(){
-  if (saveInterval) { clearInterval(saveInterval); saveInterval = null; }
-}
-
-/* ---------------------------
-   Events
-   --------------------------- */
-/* Load initial UI values */
-window.addEventListener('load', ()=>{
-  try { createIconsNow(); } catch(e){}
-  // set video src / poster
-  if (videoLink) video.src = videoLink;
-  if (posterURL) posterImage.src = posterURL;
-  episodeTitle.textContent = titulo;
-
-  // try to restore saved time (only after metadata)
-  // we do it later on 'loadedmetadata'
-});
-
-/* Video metadata loaded */
-video.addEventListener('loadedmetadata', ()=>{
-  const dur = safeNumber(video.duration);
-  progress.max = dur || 0;
-  totalTimeEl.textContent = dur ? formatTime(dur) : '0:00';
-
-  // restore saved time if valid
-  try {
-    const saved = parseFloat(localStorage.getItem(storageKey));
-    if (Number.isFinite(saved) && saved > 0 && (!dur || saved < dur - 2)) {
-      video.currentTime = saved;
-    }
-  } catch(e){}
-
-  updateProgressBarVisual();
-});
-
-/* Time updates (progress) */
-video.addEventListener('timeupdate', ()=>{
-  // update slider and time
-  progress.value = video.currentTime || 0;
-  currentTimeEl.textContent = formatTime(video.currentTime);
-  updateProgressBarVisual();
-
-  // Show skip intro only at start
-  if (introEnd > 0 && video.currentTime >= 0 && video.currentTime < introEnd && !locked) {
-    btnSkipIntro.style.display = 'block';
-  } else {
-    btnSkipIntro.style.display = 'none';
-  }
-});
-
-/* Buffer progress */
-video.addEventListener('progress', updateProgressBarVisual);
-
-/* Seeking / waiting spinner */
-video.addEventListener('seeking', ()=> loadingSpinner.classList.add('visible'));
-video.addEventListener('seeked', ()=> { loadingSpinner.classList.remove('visible'); updateProgressBarVisual();});
-video.addEventListener('waiting', ()=> loadingSpinner.classList.add('visible'));
-video.addEventListener('canplay', ()=> loadingSpinner.classList.remove('visible'));
-video.addEventListener('playing', ()=> { loadingSpinner.classList.remove('visible'); setPlayIcon(true); });
-video.addEventListener('pause', ()=> setPlayIcon(false));
-video.addEventListener('ended', ()=> { setPlayIcon(false); stopSaveProgress(); });
-
-/* Progress input (scrubbing) */
-let isScrubbing = false;
-progress.addEventListener('input', (e)=>{
-  isScrubbing = true;
-  const val = parseFloat(progress.value || 0);
-  currentTimeEl.textContent = formatTime(val);
-  // feedback immediate
-  try { video.currentTime = val; } catch(e){}
-  updateProgressBarVisual();
-  resetHideTimeout();
-});
-progress.addEventListener('change', ()=>{
-  isScrubbing = false;
-  updateProgressBarVisual();
-});
-
-/* Buttons */
-coverPlayBtn.addEventListener('click', (e)=>{
-  // user gesture -> start playback and fullscreen advanced
-  cover.classList.add('hidden');
-  try { video.play().catch(()=>{}); } catch(e){}
-  enterFullscreenAdvanced();
-  showControls();
-  startSaveProgress();
-});
-playPauseBtn.addEventListener('click', (e)=>{
-  // If clicked by user, attempt fullscreen as well (one-time)
-  togglePlay({requestFullscreen:true});
-  // ensure saving started
-  startSaveProgress();
-  resetHideTimeout();
-});
-rewBtn.addEventListener('click', ()=>{ skip(-10); resetHideTimeout(); });
-fwdBtn.addEventListener('click', ()=>{ skip(10); resetHideTimeout(); });
-
-fullscreenToggle.addEventListener('click', ()=>{
-  // toggle fullscreen state
-  try {
-    if (!document.fullscreenElement) {
-      enterFullscreenAdvanced();
+  function togglePlay() {
+    if (video.paused || video.ended) {
+      video.play();
+      reemplazarIcono('pause');
     } else {
-      if (document.exitFullscreen) document.exitFullscreen().catch(()=>{});
-      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      video.pause();
+      reemplazarIcono('play');
     }
-  } catch(e){}
-});
-
-fitBtn.addEventListener('click', ()=>{
-  isCoverMode = !isCoverMode;
-  video.style.objectFit = isCoverMode ? 'cover' : 'contain';
-  fitBtn.classList.toggle('active', !isCoverMode);
-});
-
-lockBtn.addEventListener('click', ()=>{ lockControls(); });
-unlockBtn.addEventListener('click', ()=>{ unlockControls(); });
-
-btnSkipIntro.addEventListener('click', ()=>{
-  if (introEnd > 0) {
-    video.currentTime = introEnd;
-    btnSkipIntro.style.display = 'none';
-    updateProgressBarVisual();
   }
-});
 
-/* Click on wrapper toggles controls (but not on buttons) */
-document.getElementById('videoWrapper').addEventListener('click', (e)=>{
-  if (e.target.closest('button') || e.target.closest('input')) return;
-  if (controlsVisible) hideControls(); else showControls();
-});
+  function reemplazarIcono(nuevoIcono) {
+    const contenedor = document.getElementById('playPauseIcon').parentNode;
+    const viejoIcono = document.getElementById('playPauseIcon');
+    const nuevo = document.createElement('i');
+    nuevo.setAttribute('data-lucide', nuevoIcono);
+    nuevo.className = 'w-10 h-10 text-white';
+    nuevo.id = 'playPauseIcon';
+    contenedor.replaceChild(nuevo, viejoIcono);
+    lucide.createIcons();
+  }
 
-/* Auto-hide on mouse move */
-let mouseTimer;
-document.addEventListener('mousemove', ()=>{
-  showControls();
-  clearTimeout(mouseTimer);
-  mouseTimer = setTimeout(()=> {
-    if (!video.paused) hideControls();
-  }, 2500);
-});
+  // Iniciar reproducción desde portada
+  function startVideo() {
+    cover.classList.add('hidden');
+    try { video.play().catch(()=>{}); } catch(e){}
 
-/* Keyboard shortcuts (global) */
-document.addEventListener('keydown', (e)=>{
-  // ignore when focused on input
-  const tag = document.activeElement && document.activeElement.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement && document.activeElement.isContentEditable) return;
+    // Forzar pantalla completa avanzado
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) {
+      elem.requestFullscreen().catch(()=>{});
+    } else if (elem.webkitRequestFullscreen) { // Safari
+      elem.webkitRequestFullscreen();
+    } else if (elem.mozRequestFullScreen) { // Firefox
+      elem.mozRequestFullScreen();
+    } else if (elem.msRequestFullscreen) { // IE/Edge
+      elem.msRequestFullscreen();
+    }
 
-  if (e.code === 'Space') { e.preventDefault(); togglePlay({requestFullscreen:false}); startSaveProgress(); }
-  if (e.code === 'ArrowLeft') { e.preventDefault(); skip(-5); }
-  if (e.code === 'ArrowRight') { e.preventDefault(); skip(5); }
-  if (e.code === 'KeyF') { e.preventDefault(); enterFullscreenAdvanced(); }
-  if (e.code === 'KeyM') { e.preventDefault(); video.muted = !video.muted; }
-});
+    // Intentar bloquear en modo landscape
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock("landscape").catch(()=>{});
+    }
 
-/* Save progress periodically */
-startSaveProgress();
-window.addEventListener('beforeunload', ()=>{
-  try { localStorage.setItem(storageKey, String(video.currentTime || 0)); } catch(e){}
-  stopSaveProgress();
-});
+    // Guardar progreso cada 1 segundo
+    saveInterval = setInterval(() => {
+      localStorage.setItem(storageKey, video.currentTime);
+    }, 1000);
 
-/* Initialize icons and some UI */
-createIconsNow();
-updateProgressBarVisual();
-currentTimeEl.textContent = '0:00';
-totalTimeEl.textContent = '0:00';
+    showControls();
+    lucide.createIcons();
+    loadingSpinner.classList.add('hidden');
+  }
 
+  function skip(seconds) {
+    video.currentTime += seconds;
+  }
+
+  function skipIntro() {
+    video.currentTime = introEnd;
+    btnSkipIntro.classList.add("hidden");
+  }
+
+  function toggleFullscreen() {
+    const elem = document.documentElement;
+    if (!document.fullscreenElement) {
+      elem.requestFullscreen?.();
+    } else {
+      document.exitFullscreen?.();
+    }
+  }
+
+  function formatTime(sec) {
+    const hours = Math.floor(sec / 3600).toString().padStart(1, '0');
+    const minutes = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+    const seconds = Math.floor(sec % 60).toString().padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
+  }
+
+  function showControls() {
+    if (locked) return;
+    controls.classList.add('show-controls');
+    controls.classList.remove('hidden-controls');
+    episodeTitle.classList.add('show-controls');
+    episodeTitle.classList.remove('hidden-controls');
+    controlsVisible = true;
+    resetHideTimeout();
+  }
+
+  function hideControls() {
+    if (locked) return;
+    controls.classList.remove('show-controls');
+    controls.classList.add('hidden-controls');
+    episodeTitle.classList.remove('show-controls');
+    episodeTitle.classList.add('hidden-controls');
+    controlsVisible = false;
+  }
+
+  function toggleControls() {
+    if (locked) return;
+    controlsVisible ? hideControls() : showControls();
+  }
+
+  function resetHideTimeout() {
+    if (locked) return;
+    clearTimeout(hideTimeout);
+    hideTimeout = setTimeout(hideControls, 3000);
+  }
+
+  function toggleLock() {
+    locked ? unlockControls() : lockControls();
+  }
+
+  function lockControls() {
+    locked = true;
+    hideControls();
+    unlockBtn.classList.remove("hidden");
+    controls.classList.add("hidden");
+    btnSkipIntro.classList.add("hidden");
+    episodeTitle.classList.add("hidden");
+    lockBtn.classList.add("hidden");
+    lockIcon.setAttribute("data-lucide", "lock");
+    lockText.textContent = "Bloqueado";
+    lucide.createIcons();
+  }
+
+  function unlockControls() {
+    locked = false;
+    showControls();
+    unlockBtn.classList.add("hidden");
+    controls.classList.remove("hidden");
+    episodeTitle.classList.remove("hidden");
+    lockBtn.classList.remove("hidden");
+    lockIcon.setAttribute("data-lucide", "unlock");
+    lockText.textContent = "Bloquear";
+    lucide.createIcons();
+  }
+
+  function toggleVideoFit(btn) {
+    isCoverMode = !isCoverMode;
+    video.classList.toggle('object-cover', isCoverMode);
+    video.classList.toggle('object-contain', !isCoverMode);
+    btn.classList.toggle('text-red-600', !isCoverMode);
+  }
+
+  // Eventos del video
+  video.addEventListener('loadedmetadata', () => {
+    progress.max = Math.floor(video.duration);
+    totalTimeEl.textContent = formatTime(video.duration);
+    const savedTime = localStorage.getItem(storageKey);
+    if (savedTime) video.currentTime = parseFloat(savedTime);
+  });
+
+  video.addEventListener('timeupdate', () => {
+    progress.value = Math.floor(video.currentTime);
+    currentTimeEl.textContent = formatTime(video.currentTime);
+
+    // Pintar progreso dinámicamente
+    const percent = (video.currentTime / video.duration) * 100;
+    progress.style.background = `linear-gradient(to right, red ${percent}%, #444 ${percent}%)`;
+
+    // Mostrar botón Saltar intro solo entre 0:00:00 e introEnd
+    if (video.currentTime >= 0 && video.currentTime < introEnd) {
+      if (!locked) btnSkipIntro.classList.remove("hidden");
+    } else {
+      btnSkipIntro.classList.add("hidden");
+    }
+  });
+
+  video.addEventListener('waiting', () => loadingSpinner.classList.remove("hidden"));
+  video.addEventListener('canplay', () => loadingSpinner.classList.add("hidden"));
+  video.addEventListener('playing', () => loadingSpinner.classList.add("hidden"));
+
+  progress.addEventListener('input', () => {
+    resetHideTimeout();
+    video.currentTime = progress.value;
+  });
+
+  // Control de clic
+  videoWrapper.addEventListener('click', e => {
+    if (e.target.closest('button')) return;
+    toggleControls();
+  });
+
+  // Inicializar
+  window.addEventListener('load', () => {
+    lucide.createIcons();
+    resetHideTimeout();
+    video.src = videoLink;
+    episodeTitle.textContent = titulo;
+    document.getElementById('posterImage').src = posterURL;
+  });
 </script>
 </body>
 </html>
