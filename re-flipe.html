@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Reproductor Nagi+</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    html, body { height: 100%; margin: 0; padding: 0; background: #000; color: #fff; }
+    * { user-select: none; box-sizing: border-box; }
+    .hidden-controls { opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
+    .show-controls { opacity: 1; pointer-events: auto; }
+    .text-outline { text-shadow: 1px 1px 2px rgba(0,0,0,0.9); }
+    .icon-shadow svg { filter: drop-shadow(0 2px 6px rgba(0,0,0,0.7)); }
+    .animate-press:active { transform: scale(0.95); transition: transform 0.08s ease; }
+
+    /* Barra de progreso - avanzada con indicador de buffer */
+    .progress-wrap { width: 100%; position: relative; padding: 6px 0 2px 0; }
+    input[type=range].progress {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(to right, #ff3b3b 0%, #ff3b3b 0%, #999 0%, #999 0%, #333 0%, #333 100%);
+      outline: none;
+      cursor: pointer;
+      transition: box-shadow .12s ease, opacity .12s ease;
+    }
+
+    /* WebKit track/thumb */
+    input[type=range].progress::-webkit-slider-runnable-track {
+      height: 8px;
+      border-radius: 999px;
+      background: transparent;
+    }
+    input[type=range].progress::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      margin-top: -4px; /* center the thumb on the track (half of thumb size) */
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 3px solid #ff3b3b;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+    input[type=range].progress:hover::-webkit-slider-thumb { transform: scale(1.12); }
+
+    /* Firefox */
+    input[type=range].progress::-moz-range-track {
+      height: 8px;
+      border-radius: 999px;
+      background: transparent;
+    }
+    input[type=range].progress::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 3px solid #ff3b3b;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+      transition: transform 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    /* Small responsive adjustments */
+    @media (max-width: 640px) {
+      .flex-1 .gap-72 { gap: 24px; }
+      .text-sm { font-size: 12px; }
+    }
+
+    /* Spinner / overlay utility */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body class="bg-black w-screen h-screen overflow-hidden">
+
+<script>
+  // Parámetros por URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const videoLink = urlParams.get('linkmp4') || '';
+  const titulo = urlParams.get('titulo') || '';
+  const sigEpisodio = urlParams.get('sig') || '#';
+  const capitulosURL = urlParams.get('capitulos') || '#';
+  const posterURL = urlParams.get('poster') || '';
+  const introEnd = Number(urlParams.get('intro')) || 0;
+  const storageKey = `nagi-progress-${videoLink || 'default'}`;
+</script>
+
+<div id="videoWrapper" class="w-screen h-screen fixed top-0 left-0 z-0">
+  <!-- Portada -->
+  <div id="cover" class="absolute inset-0 z-50 bg-black">
+    <img id="posterImage" src="" class="w-full h-full object-cover" />
+    <button id="coverPlayBtn" onclick="startVideo()" class="absolute inset-0 flex items-center justify-center">
+      <div class="bg-white/10 backdrop-blur-sm p-4 rounded-full text-white animate-press">
+        <i data-lucide="play" class="w-12 h-12"></i>
+      </div>
+    </button>
+  </div>
+
+  <!-- Spinner -->
+  <div id="loadingSpinner" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/40 hidden">
+    <div class="animate-spin text-white mb-4">
+      <i data-lucide="loader" class="w-10 h-10"></i>
+    </div>
+    <div class="text-white text-sm font-semibold text-outline">Cargando Nagi+...</div>
+  </div>
+
+  <!-- Video -->
+  <video id="video" class="w-full h-full object-cover" src="" playsinline preload="auto"></video>
+
+  <!-- Saltar intro -->
+  <button id="btnSkipIntro" onclick="resetHideTimeout(); skipIntro()" class="absolute right-4 bottom-36 bg-white/10 text-white px-3 py-1 text-sm font-bold rounded z-50 backdrop-blur-sm hidden text-outline">
+    <i data-lucide="fast-forward" class="inline-block w-4 h-4 mr-1"></i> Saltar intro
+  </button>
+
+  <!-- Desbloquear -->
+  <button id="unlockBtn" onclick="resetHideTimeout(); unlockControls()" class="absolute top-2 right-2 z-50 text-white p-2 bg-black/40 rounded-full hidden">
+    <i data-lucide="unlock" class="w-6 h-6"></i>
+  </button>
+
+  <!-- Título -->
+  <div id="episodeTitle" class="absolute top-2 left-2 z-10 text-white text-sm text-outline hidden-controls"></div>
+
+  <!-- Controles -->
+  <div id="controls" class="absolute inset-0 flex flex-col justify-end px-4 pt-2 pb-4 hidden-controls">
+    <div class="flex-1 flex items-center justify-center">
+      <div class="flex items-center justify-center gap-20">
+        <button onclick="resetHideTimeout(); skip(-10)" class="active:text-red-600 icon-shadow animate-press">
+          <i data-lucide="rotate-ccw" class="w-8 h-8 text-white"></i>
+        </button>
+        <button id="playPauseBtn" onclick="resetHideTimeout(); togglePlay()" class="animate-press icon-shadow">
+          <i id="playPauseIcon" data-lucide="pause" class="w-10 h-10 text-white"></i>
+        </button>
+        <button onclick="resetHideTimeout(); skip(10)" class="active:text-red-600 icon-shadow animate-press">
+          <i data-lucide="rotate-cw" class="w-8 h-8 text-white"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Barra progreso -->
+    <div class="progress-wrap">
+      <!-- range mejorada -->
+      <input id="progress" class="progress" type="range" min="0" step="0.1" value="0" aria-label="Barra de progreso" />
+      <div class="flex justify-between text-xs text-white mt-1 text-outline">
+        <span id="currentTime">0:00</span>
+        <span id="totalTime">0:00</span>
+      </div>
+    </div>
+
+    <!-- Controles inferiores -->
+    <div id="bottomControls" class="grid grid-cols-5 text-white text-xs mt-2 gap-2 text-center">
+      <button onclick="resetHideTimeout(); toggleFullscreen()" class="flex flex-col items-center active:text-red-600 icon-shadow animate-press">
+        <i data-lucide="maximize" class="w-5 h-5 mb-1"></i><span class="text-outline">Pantalla completa</span>
+      </button>
+      <button onclick="resetHideTimeout(); toggleVideoFit(this)" class="flex flex-col items-center icon-shadow animate-press" id="fitBtn">
+        <i data-lucide="move" class="w-5 h-5 mb-1"></i><span class="text-outline">Ajuste</span>
+      </button>
+      <button onclick="location.href=capitulosURL" class="flex flex-col items-center active:text-red-600 icon-shadow animate-press">
+        <i data-lucide="layout-grid" class="w-5 h-5 mb-1"></i><span class="text-outline">Episodios</span>
+      </button>
+      <button id="lockBtn" onclick="toggleLock()" class="flex flex-col items-center active:text-red-600 icon-shadow animate-press">
+        <i id="lockIcon" data-lucide="lock" class="w-5 h-5 mb-1"></i><span id="lockText" class="text-outline">Bloquear</span>
+      </button>
+      <button onclick="location.href=sigEpisodio" class="flex flex-col items-center active:text-red-600 icon-shadow animate-press">
+        <i data-lucide="chevron-right" class="w-5 h-5 mb-1"></i><span class="text-outline">Sig. Episodio</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Elementos
+  const video = document.getElementById('video');
+  const playPauseIcon = () => document.getElementById('playPauseIcon');
+  const progress = document.getElementById('progress');
+  const currentTimeEl = document.getElementById('currentTime');
+  const totalTimeEl = document.getElementById('totalTime');
+  const controls = document.getElementById('controls');
+  const unlockBtn = document.getElementById('unlockBtn');
+  const episodeTitle = document.getElementById('episodeTitle');
+  const btnSkipIntro = document.getElementById('btnSkipIntro');
+  const lockBtn = document.getElementById('lockBtn');
+  const lockIcon = document.getElementById('lockIcon');
+  const lockText = document.getElementById('lockText');
+  const videoWrapper = document.getElementById('videoWrapper');
+  const cover = document.getElementById('cover');
+  const loadingSpinner = document.getElementById('loadingSpinner');
+  const fitBtn = document.getElementById('fitBtn');
+
+  let controlsVisible = true;
+  let locked = false;
+  let hideTimeout = null;
+  let isCoverMode = true;
+  let saveInterval = null;
+
+  // --- Utilidades ---
+  function formatTime(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
+    const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+    const m = Math.floor((seconds / 60) % 60);
+    const h = Math.floor(seconds / 3600);
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${s}`;
+    return `${m}:${s}`;
+  }
+
+  function reemplazarIcono(nuevoIcono) {
+    const viejo = document.getElementById('playPauseIcon');
+    if (!viejo) return;
+    const contenedor = viejo.parentNode;
+    const nuevo = document.createElement('i');
+    nuevo.setAttribute('data-lucide', nuevoIcono);
+    nuevo.className = 'w-10 h-10 text-white';
+    nuevo.id = 'playPauseIcon';
+    contenedor.replaceChild(nuevo, viejo);
+    lucide.createIcons();
+  }
+
+  function updatePlayPauseUI() {
+    if (video.paused || video.ended) reemplazarIcono('play');
+    else reemplazarIcono('pause');
+  }
+
+  // --- Progreso & buffer ---
+  function getBufferEnd() {
+    try {
+      if (!video.buffered || video.buffered.length === 0) return 0;
+      // tomar el buffer más lejano (mayor end)
+      let maxEnd = 0;
+      for (let i = 0; i < video.buffered.length; i++) {
+        const end = video.buffered.end(i);
+        if (end > maxEnd) maxEnd = end;
+      }
+      return maxEnd;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function updateProgressBarVisual() {
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+    const current = Number.isFinite(video.currentTime) ? Math.max(0, Math.min(video.currentTime, duration || 0)) : 0;
+    const valuePercent = duration ? (current / duration) * 100 : 0;
+
+    const bufferEnd = getBufferEnd();
+    const bufferPercent = duration ? Math.min((bufferEnd / duration) * 100, 100) : 0;
+
+    // Gradiente: progreso rojo, buffer gris claro, resto gris oscuro
+    const progColor = '#ff3b3b';
+    const bufferColor = '#9b9b9b';
+    const restColor = '#333333';
+
+    progress.style.background = `
+      linear-gradient(to right,
+        ${progColor} 0%, ${progColor} ${valuePercent}%,
+        ${bufferColor} ${valuePercent}%, ${bufferColor} ${bufferPercent}%,
+        ${restColor} ${bufferPercent}%, ${restColor} 100%)`;
+  }
+
+  // --- Reproductor (play/pause, skip) ---
+  function togglePlay() {
+    if (video.paused || video.ended) {
+      video.play().catch(()=>{}); // ignorar rechazo si bloqueo de autoplay
+      updatePlayPauseUI();
+    } else {
+      video.pause();
+      updatePlayPauseUI();
+    }
+  }
+
+  function skip(seconds) {
+    const duration = video.duration || 0;
+    let target = (video.currentTime || 0) + seconds;
+    if (target < 0) target = 0;
+    if (duration && target > duration) target = duration;
+    video.currentTime = target;
+    updateProgressBarVisual();
+  }
+
+  function skipIntro() {
+    if (introEnd && Number.isFinite(introEnd)) {
+      video.currentTime = introEnd;
+      btnSkipIntro.classList.add("hidden");
+      updateProgressBarVisual();
+    }
+  }
+
+  function toggleFullscreen() {
+    const elem = document.documentElement;
+    if (!document.fullscreenElement) {
+      elem.requestFullscreen?.().catch(()=>{});
+    } else {
+      document.exitFullscreen?.().catch(()=>{});
+    }
+  }
+
+  function toggleVideoFit(btn) {
+    isCoverMode = !isCoverMode;
+    video.classList.toggle('object-cover', isCoverMode);
+    video.classList.toggle('object-contain', !isCoverMode);
+    btn.classList.toggle('text-red-600', !isCoverMode);
+  }
+
+  // --- Controles visibles / bloqueo ---
+  function showControls() {
+    if (locked) return;
+    controls.classList.add('show-controls'); controls.classList.remove('hidden-controls');
+    episodeTitle.classList.add('show-controls'); episodeTitle.classList.remove('hidden-controls');
+    controlsVisible = true;
+    resetHideTimeout();
+  }
+
+  function hideControls() {
+    if (locked) return;
+    controls.classList.remove('show-controls'); controls.classList.add('hidden-controls');
+    episodeTitle.classList.remove('show-controls'); episodeTitle.classList.add('hidden-controls');
+    controlsVisible = false;
+  }
+
+  function toggleControls() {
+    if (locked) return;
+    controlsVisible ? hideControls() : showControls();
+  }
+
+  function resetHideTimeout() {
+    if (locked) return;
+    clearTimeout(hideTimeout);
+    hideTimeout = setTimeout(hideControls, 3000);
+  }
+
+  function lockControls() {
+    locked = true;
+    hideControls();
+    unlockBtn.classList.remove("hidden");
+    controls.style.display = 'none';
+    btnSkipIntro.classList.add("hidden");
+    episodeTitle.classList.add("hidden");
+    lockBtn.classList.add("hidden");
+    lockIcon.setAttribute("data-lucide", "lock");
+    lockText.textContent = "Bloqueado";
+    lucide.createIcons();
+  }
+
+  function unlockControls() {
+    locked = false;
+    controls.style.removeProperty('display');
+    showControls();
+    unlockBtn.classList.add("hidden");
+    lockBtn.classList.remove("hidden");
+    lockIcon.setAttribute("data-lucide", "unlock");
+    lockText.textContent = "Bloquear";
+    lucide.createIcons();
+  }
+
+  function toggleLock() { locked ? unlockControls() : lockControls(); }
+
+  // --- Eventos del video ---
+  video.addEventListener('loadedmetadata', () => {
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      progress.max = video.duration;
+      totalTimeEl.textContent = formatTime(video.duration);
+    } else {
+      progress.max = 0;
+      totalTimeEl.textContent = '0:00';
+    }
+    // cargar progreso guardado (si existe y es válido)
+    try {
+      const saved = parseFloat(localStorage.getItem(storageKey));
+      if (Number.isFinite(saved) && saved > 0 && saved < (video.duration || Number.POSITIVE_INFINITY)) {
+        video.currentTime = saved;
+      }
+    } catch (e) {}
+    updateProgressBarVisual();
+  });
+
+  video.addEventListener('timeupdate', () => {
+    // sincronizar slider y visual
+    progress.value = video.currentTime;
+    currentTimeEl.textContent = formatTime(video.currentTime);
+    updateProgressBarVisual();
+
+    // mostrar botón Saltar intro solo en el rango 0..introEnd
+    if (introEnd > 0 && video.currentTime >= 0 && video.currentTime < introEnd && !locked) {
+      btnSkipIntro.classList.remove("hidden");
+    } else {
+      btnSkipIntro.classList.add("hidden");
+    }
+  });
+
+  video.addEventListener('progress', () => {
+    // evento de carga del buffer
+    updateProgressBarVisual();
+  });
+
+  video.addEventListener('seeking', () => {
+    loadingSpinner.classList.remove('hidden');
+  });
+
+  video.addEventListener('seeked', () => {
+    loadingSpinner.classList.add('hidden');
+    updateProgressBarVisual();
+  });
+
+  video.addEventListener('waiting', () => loadingSpinner.classList.remove('hidden'));
+  video.addEventListener('canplay', () => loadingSpinner.classList.add('hidden'));
+  video.addEventListener('playing', () => {
+    loadingSpinner.classList.add('hidden');
+    updatePlayPauseUI();
+  });
+  video.addEventListener('pause', updatePlayPauseUI);
+  video.addEventListener('ended', () => {
+    updatePlayPauseUI();
+    // opcional: limpiar intervalo
+    clearInterval(saveInterval);
+  });
+
+  // Al mover el slider (scrub)
+  let isScrubbing = false;
+  progress.addEventListener('input', (e) => {
+    // mientras arrastras, actualizamos la posición en el video inmediatamente para feedback rápido
+    isScrubbing = true;
+    const val = parseFloat(progress.value);
+    video.currentTime = val;
+    currentTimeEl.textContent = formatTime(val);
+    updateProgressBarVisual();
+    resetHideTimeout();
+  });
+
+  progress.addEventListener('change', () => {
+    // fin de scrubbing (en algunos navegadores 'input' basta)
+    isScrubbing = false;
+    updateProgressBarVisual();
+  });
+
+  // Soporte de teclado cuando el range tiene foco
+  progress.addEventListener('keydown', (e) => {
+    const step = 5; // segundos por flecha
+    if (e.key === 'ArrowLeft') { e.preventDefault(); skip(-step); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); skip(step); }
+    if (e.key === 'Home') { e.preventDefault(); video.currentTime = 0; updateProgressBarVisual(); }
+    if (e.key === 'End') { e.preventDefault(); video.currentTime = video.duration || video.currentTime; updateProgressBarVisual(); }
+  });
+
+  // Guardar progreso periódicamente
+  function startSaveProgress() {
+    if (saveInterval) clearInterval(saveInterval);
+    saveInterval = setInterval(() => {
+      try {
+        localStorage.setItem(storageKey, String(video.currentTime || 0));
+      } catch (e) {}
+    }, 1000);
+  }
+  // limpiar al salir
+  window.addEventListener('beforeunload', () => {
+    try { localStorage.setItem(storageKey, String(video.currentTime || 0)); } catch (e) {}
+    if (saveInterval) clearInterval(saveInterval);
+  });
+
+  // Control del click en el wrapper para mostrar/ocultar controles
+  videoWrapper.addEventListener('click', e => {
+    if (e.target.closest('button')) return;
+    toggleControls();
+  });
+
+  // Iniciar reproducción desde portada
+  function startVideo() {
+    cover.classList.add('hidden');
+    try { video.play().catch(()=>{}); } catch(e){}
+    // start saving progreso
+    startSaveProgress();
+    showControls();
+    lucide.createIcons();
+    // Hide spinner if already can
+    loadingSpinner.classList.add('hidden');
+  }
+
+  // Inicializar UI al cargar la página
+  window.addEventListener('load', () => {
+    lucide.createIcons();
+    resetHideTimeout();
+    video.src = videoLink;
+    episodeTitle.textContent = titulo;
+    document.getElementById('posterImage').src = posterURL;
+    // start save if autoplay succeeded
+    startSaveProgress();
+  });
+
+  // Exponer a scope global funciones que el markup usa
+  window.togglePlay = togglePlay;
+  window.skip = skip;
+  window.startVideo = startVideo;
+  window.skipIntro = skipIntro;
+  window.toggleFullscreen = toggleFullscreen;
+  window.toggleVideoFit = toggleVideoFit;
+  window.toggleLock = toggleLock;
+  window.unlockControls = unlockControls;
+</script>
+</body>
+</html>
